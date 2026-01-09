@@ -57,20 +57,17 @@ def scrape_table(page, url, filename, start_dt, end_dt):
         for row in rows:
             try:
                 # Basic selectors based on Cardmarket structure
-                # Note: Cardmarket HTML classes change, these are generic targets
                 order_id = row.query_selector('.col-orderId').inner_text().strip() if row.query_selector('.col-orderId') else "N/A"
                 date_str = row.query_selector('.col-date').inner_text().strip() if row.query_selector('.col-date') else ""
-                # Attempt to parse date
+                
                 row_date = None
                 try:
-                    # Cardmarket uses various formats, common is DD.MM.YY HH:mm
                     row_date = datetime.strptime(date_str.split(' ')[0], '%d.%m.%y')
                 except:
                     pass
 
-                # Filter by date
                 if start_dt and row_date and row_date < start_dt:
-                    has_next = False # Since orders are usually sorted by date descending
+                    has_next = False 
                     continue
                 if end_dt and row_date and row_date > end_dt:
                     continue
@@ -90,13 +87,12 @@ def scrape_table(page, url, filename, start_dt, end_dt):
             except Exception as e:
                 print(f"Error parsing row: {e}")
 
-        # Check for next page
         next_btn = page.query_selector('a[aria-label="Next Page"]')
         if next_btn and has_next:
             next_btn.click()
             page.wait_for_load_state('networkidle')
             page_num += 1
-            time.sleep(2) # Rate limit protection
+            time.sleep(2)
         else:
             has_next = False
 
@@ -111,7 +107,6 @@ def run():
         context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36")
         page = context.new_page()
 
-        # Login
         print("Logging in...")
         page.goto("https://www.cardmarket.com/en/Magic/MainPage/Login")
         page.fill('input[name="_username"]', USER_NAME)
@@ -125,8 +120,6 @@ def run():
             return
 
         final_results = []
-        
-        # Targets
         targets = []
         if true: targets.append("https://www.cardmarket.com/en/Magic/Orders/Received")
         if true: targets.append("https://www.cardmarket.com/en/Magic/Sales/Arrived")
@@ -135,7 +128,6 @@ def run():
             data = scrape_table(page, target, "export.csv", start_dt, end_dt)
             final_results.extend(data)
 
-        # Write CSV
         if final_results:
             keys = final_results[0].keys()
             with open('cardmarket_export.csv', 'w', newline='', encoding='utf-8') as f:
