@@ -1,5 +1,5 @@
 
-name: Cardmarket Export
+name: Cardmarket Export to Branch
 on:
   schedule:
     - cron: '0 0 * * 0' # Weekly on Sundays
@@ -15,12 +15,17 @@ on:
         description: 'Specific Year (e.g. 2025)'
         required: false
 
+permissions:
+  contents: write
+
 jobs:
   export:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -29,7 +34,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install playwright pandas
+          pip install playwright
           playwright install chromium
 
       - name: Run Export Script
@@ -42,8 +47,26 @@ jobs:
             ${{ github.event.inputs.end_date && format('--end-date {0}', github.event.inputs.end_date) || '' }} \
             ${{ github.event.inputs.year && format('--year {0}', github.event.inputs.year) || '' }}
 
-      - name: Upload Results
-        uses: actions/upload-artifact@v4
-        with:
-          name: cardmarket-csv-export
-          path: cardmarket_export.csv
+      - name: Commit and Push to exports branch
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Create or switch to exports branch
+          if git show-ref --verify --quiet refs/remotes/origin/exports; then
+            git checkout exports
+            git pull origin exports
+          else
+            git checkout -b exports
+          fi
+          
+          # Move file from main to here if needed (it should be in root)
+          git add cardmarket_export.csv
+          
+          # Only commit if there are changes
+          if git diff --staged --quiet; then
+            echo "No changes in CSV, skipping commit."
+          else
+            git commit -m "Update Cardmarket Export: $(date +'%Y-%m-%d %H:%M')"
+            git push origin exports
+          fi
