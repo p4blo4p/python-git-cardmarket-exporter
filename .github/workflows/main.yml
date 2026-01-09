@@ -1,19 +1,25 @@
 
-name: Cardmarket Export to Branch
+name: Cardmarket Manual Export
 on:
-  schedule:
-    - cron: '0 0 * * 0' # Weekly on Sundays
   workflow_dispatch:
     inputs:
       start_date:
-        description: 'Start Date (YYYY-MM-DD)'
+        description: 'Fecha Inicio (YYYY-MM-DD)'
         required: false
       end_date:
-        description: 'End Date (YYYY-MM-DD)'
+        description: 'Fecha Fin (YYYY-MM-DD)'
         required: false
       year:
-        description: 'Specific Year (e.g. 2025)'
+        description: 'Año específico (ej. 2024)'
         required: false
+      include_orders:
+        description: 'Exportar Compras (Recibidos)'
+        type: boolean
+        default: true
+      include_sales:
+        description: 'Exportar Ventas (Enviados)'
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -22,13 +28,30 @@ jobs:
   export:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: Checkout Code (Main)
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          path: main
+
+      - name: Checkout Exports Branch
+        uses: actions/checkout@v4
+        with:
+          ref: exports
+          path: exports_data
+        continue-on-error: true # Permite fallar si la rama no existe aún
+
+      - name: Prepare Workspace
+        run: |
+          # Copiar el script de main al directorio de trabajo
+          cp main/export_script.py .
+          # Si existe el CSV previo, copiarlo aquí para que el script lo use como base
+          if [ -f exports_data/cardmarket_export.csv ]; then
+            cp exports_data/cardmarket_export.csv .
+            echo "Existing CSV found and loaded for recovery."
+          fi
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
@@ -42,31 +65,36 @@ jobs:
           CM_USERNAME: ${{ secrets.CM_USERNAME }}
           CM_PASSWORD: ${{ secrets.CM_PASSWORD }}
         run: |
-          python export_script.py \
-            ${{ github.event.inputs.start_date && format('--start-date {0}', github.event.inputs.start_date) || '' }} \
-            ${{ github.event.inputs.end_date && format('--end-date {0}', github.event.inputs.end_date) || '' }} \
-            ${{ github.event.inputs.year && format('--year {0}', github.event.inputs.year) || '' }}
+          ARGS=""
+          if [ -n "${{ github.event.inputs.start_date }}" ]; then ARGS="$ARGS --start-date ${{ github.event.inputs.start_date }}"; fi
+          if [ -n "${{ github.event.inputs.end_date }}" ]; then ARGS="$ARGS --end-date ${{ github.event.inputs.end_date }}"; fi
+          if [ -n "${{ github.event.inputs.year }}" ]; then ARGS="$ARGS --year ${{ github.event.inputs.year }}"; fi
+          if [ "${{ github.event.inputs.include_orders }}" = "true" ]; then ARGS="$ARGS --include-orders"; fi
+          if [ "${{ github.event.inputs.include_sales }}" = "true" ]; then ARGS="$ARGS --include-sales"; fi
+          
+          python export_script.py $ARGS
 
-      - name: Commit and Push to exports branch
+      - name: Commit and Push
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Create or switch to exports branch
-          if git show-ref --verify --quiet refs/remotes/origin/exports; then
-            git checkout exports
-            git pull origin exports
-          else
-            git checkout -b exports
+          if [ ! -f cardmarket_export.csv ]; then
+            echo "No CSV generated, skipping."
+            exit 0
           fi
+
+          # Clonar de nuevo para asegurar rama exports limpia
+          rm -rf final_push
+          git clone --branch exports https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git final_push || (git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git final_push && cd final_push && git checkout -b exports)
           
-          # Move file from main to here if needed (it should be in root)
+          cp cardmarket_export.csv final_push/
+          cd final_push
           git add cardmarket_export.csv
           
-          # Only commit if there are changes
           if git diff --staged --quiet; then
-            echo "No changes in CSV, skipping commit."
+            echo "No new data to commit."
           else
-            git commit -m "Update Cardmarket Export: $(date +'%Y-%m-%d %H:%M')"
+            git commit -m "Update CM Export (Recovery Mode): $(date +'%Y-%m-%d %H:%M')"
             git push origin exports
           fi
