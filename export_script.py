@@ -64,8 +64,7 @@ def print_debug_log(response):
 
     # Mostrar fragmento del cuerpo si no hay login
     if 'Logout' not in response.text:
-        print("
-Fragmento del cuerpo (primeros 300 caracteres):")
+        print("Fragmento del cuerpo (primeros 300 caracteres):")
         clean_text = re.sub(r'\s+', ' ', response.text[:300]).strip()
         print(f"--- {clean_text} ---")
     
